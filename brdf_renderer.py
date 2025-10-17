@@ -21,12 +21,16 @@ logger = logging.getLogger(__name__)
 
 try:
     import mitsuba as mi
+    # 使用最兼容的变体
     mi.set_variant('scalar_rgb')
     MITSUBA_AVAILABLE = True
-    logger.info(f"Mitsuba {mi.__version__} 加载成功")
+    logger.info(f"Mitsuba {mi.__version__} 加载成功，使用 scalar_rgb 变体")
 except ImportError:
     MITSUBA_AVAILABLE = False
     logger.warning("Mitsuba未安装，请运行: pip install mitsuba")
+except Exception as e:
+    MITSUBA_AVAILABLE = False
+    logger.error(f"Mitsuba 初始化失败: {e}")
 
 class MERLBRDFLoader:
     """
@@ -392,8 +396,7 @@ class MitsubaBRDFRenderer:
         scene_dict = {
             'type': 'scene',
             'integrator': {
-                'type': 'path',  # 使用路径追踪积分器
-                'max_depth': 8
+                'type': 'direct'  # 使用直接光照积分器（更兼容）
             },
             'sensor': {
                 'type': 'perspective',
@@ -555,7 +558,7 @@ class MitsubaBRDFRenderer:
             ],
             "render": {
                 "spp": 64,
-                "integrator": "path",
+                "integrator": "direct",
                 "max_depth": 8
             },
             "paths": {

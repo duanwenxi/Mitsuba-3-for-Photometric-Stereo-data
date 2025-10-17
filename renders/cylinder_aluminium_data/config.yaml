@@ -39,7 +39,7 @@ lights:
     - 1.0697223335737591
     - 0.16666666666666682
 reconstruction:
-  ground_truth_normal: sphere_aluminium_data\images\ground_truth_normal.png
+  ground_truth_normal: cylinder_aluminium_data\images\ground_truth_normal.png
   hog_regularization:
     cells_per_block: !!python/tuple
     - 2
@@ -51,12 +51,12 @@ reconstruction:
     - 8
     - 8
   input_images:
-  - sphere_aluminium_data\images\light_1.png
-  - sphere_aluminium_data\images\light_2.png
-  - sphere_aluminium_data\images\light_3.png
-  - sphere_aluminium_data\images\light_4.png
-  - sphere_aluminium_data\images\light_5.png
-  - sphere_aluminium_data\images\light_6.png
+  - cylinder_aluminium_data\images\light_1.png
+  - cylinder_aluminium_data\images\light_2.png
+  - cylinder_aluminium_data\images\light_3.png
+  - cylinder_aluminium_data\images\light_4.png
+  - cylinder_aluminium_data\images\light_5.png
+  - cylinder_aluminium_data\images\light_6.png
   mask_threshold: 0.1
-  output_normal_map: sphere_aluminium_data\output\normal_map.png
+  output_normal_map: cylinder_aluminium_data\output\normal_map.png
   shadow_threshold: 0.05

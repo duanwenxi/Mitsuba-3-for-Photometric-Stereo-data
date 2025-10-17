@@ -18,11 +18,16 @@ import logging
 
 try:
     import mitsuba as mi
+    # 使用最兼容的变体
     mi.set_variant('scalar_rgb')
     MITSUBA_AVAILABLE = True
+    logger.info("Mitsuba 加载成功，使用 scalar_rgb 变体")
 except ImportError:
     MITSUBA_AVAILABLE = False
     print("警告: Mitsuba未安装，无法生成渲染数据")
+except Exception as e:
+    MITSUBA_AVAILABLE = False
+    print(f"警告: Mitsuba 初始化失败: {e}")
 
 from brdf_renderer import MitsubaBRDFRenderer, LightingConfig, CameraConfig
 
@@ -217,7 +222,11 @@ class PhotometricStereoDataGenerator:
                           light_positions: List[Tuple[float, float, float]],
                           output_dir: Path,
                           image_size: Tuple[int, int] = (256, 256),
-                          spp: int = 64) -> bool:
+                          spp: int = 64,
+                          light_intensity: float = 50.0,
+                          camera_fov: float = 45.0,
+                          camera_position: Tuple[float, float, float] = (0, 0, 5),
+                          camera_target: Tuple[float, float, float] = (0, 0, 0)) -> bool:
         """
         渲染多光源图像
         
@@ -228,6 +237,10 @@ class PhotometricStereoDataGenerator:
             output_dir: 输出目录
             image_size: 图像尺寸
             spp: 采样数
+            light_intensity: 光源强度
+            camera_fov: 相机视场角
+            camera_position: 相机位置
+            camera_target: 相机目标点
             
         Returns:
             是否成功
@@ -254,13 +267,13 @@ class PhotometricStereoDataGenerator:
                 # 创建场景
                 scene_dict = {
                     'type': 'scene',
-                    'integrator': {'type': 'path', 'max_depth': 6},
+                    'integrator': {'type': 'direct'},
                     'sensor': {
                         'type': 'perspective',
-                        'fov': 45.0,
+                        'fov': camera_fov,
                         'to_world': mi.ScalarTransform4f().look_at(
-                            mi.ScalarPoint3f([0, 0, 5]),
-                            mi.ScalarPoint3f([0, 0, 0]),
+                            mi.ScalarPoint3f(list(camera_position)),
+                            mi.ScalarPoint3f(list(camera_target)),
                             mi.ScalarPoint3f([0, 1, 0])
                         ),
                         'film': {
@@ -273,7 +286,7 @@ class PhotometricStereoDataGenerator:
                     'light': {
                         'type': 'point',
                         'position': list(light_pos),
-                        'intensity': {'type': 'rgb', 'value': 50.0}
+                        'intensity': {'type': 'rgb', 'value': light_intensity}
                     }
                 }
                 
@@ -310,7 +323,10 @@ class PhotometricStereoDataGenerator:
                         obj_path: str,
                         output_path: Path,
                         image_size: Tuple[int, int] = (256, 256),
-                        spp: int = 64) -> bool:
+                        spp: int = 64,
+                        camera_fov: float = 45.0,
+                        camera_position: Tuple[float, float, float] = (0, 0, 5),
+                        camera_target: Tuple[float, float, float] = (0, 0, 0)) -> bool:
         """
         渲染法线图
         
@@ -319,6 +335,9 @@ class PhotometricStereoDataGenerator:
             output_path: 输出路径
             image_size: 图像尺寸
             spp: 采样数
+            camera_fov: 相机视场角
+            camera_position: 相机位置
+            camera_target: 相机目标点
             
         Returns:
             是否成功
@@ -337,10 +356,10 @@ class PhotometricStereoDataGenerator:
                 },
                 'sensor': {
                     'type': 'perspective',
-                    'fov': 45.0,
+                    'fov': camera_fov,
                     'to_world': mi.ScalarTransform4f().look_at(
-                        mi.ScalarPoint3f([0, 0, 5]),
-                        mi.ScalarPoint3f([0, 0, 0]),
+                        mi.ScalarPoint3f(list(camera_position)),
+                        mi.ScalarPoint3f(list(camera_target)),
                         mi.ScalarPoint3f([0, 1, 0])
                     ),
                     'film': {
@@ -389,6 +408,11 @@ class PhotometricStereoDataGenerator:
                               brdf_path: str,
                               num_lights: int = 4,
                               light_pattern: str = "hemisphere",
+                              light_distance: float = 2.0,
+                              light_intensity: float = 50.0,
+                              camera_fov: float = 45.0,
+                              camera_position: Tuple[float, float, float] = (0, 0, 5),
+                              camera_target: Tuple[float, float, float] = (0, 0, 0),
                               image_size: Tuple[int, int] = (256, 256),
                               spp: int = 64) -> bool:
         """
@@ -400,6 +424,11 @@ class PhotometricStereoDataGenerator:
             brdf_path: BRDF文件路径
             num_lights: 光源数量
             light_pattern: 光源分布模式
+            light_distance: 光源距离
+            light_intensity: 光源强度
+            camera_fov: 相机视场角
+            camera_position: 相机位置
+            camera_target: 相机目标点
             image_size: 图像尺寸
             spp: 采样数
             
@@ -420,7 +449,7 @@ class PhotometricStereoDataGenerator:
         # 生成光源位置
         light_positions = self.generate_light_positions(
             num_lights=num_lights,
-            distance=2.0,
+            distance=light_distance,
             pattern=light_pattern
         )
         
@@ -444,7 +473,11 @@ class PhotometricStereoDataGenerator:
             light_positions=light_positions,
             output_dir=dataset_dir,
             image_size=image_size,
-            spp=spp
+            spp=spp,
+            light_intensity=light_intensity,
+            camera_fov=camera_fov,
+            camera_position=camera_position,
+            camera_target=camera_target
         ):
             logger.error(f"光源图像渲染失败: {dataset_name}")
             return False
@@ -455,7 +488,10 @@ class PhotometricStereoDataGenerator:
             obj_path=obj_path,
             output_path=normal_map_path,
             image_size=image_size,
-            spp=spp
+            spp=spp,
+            camera_fov=camera_fov,
+            camera_position=camera_position,
+            camera_target=camera_target
         ):
             logger.error(f"法线图渲染失败: {dataset_name}")
             return False

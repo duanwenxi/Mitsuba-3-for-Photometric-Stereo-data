@@ -111,10 +111,7 @@ python dataset_generator.py --single sphere,aluminium --num-lights 4
 python dataset_generator.py
 
 # 指定特定对象和材质
-python dataset_generator.py \
-    --obj-files sphere cube cylinder \
-    --brdf-files aluminium brass chrome \
-    --num-lights 6
+python dataset_generator.py --obj-files sphere cube cylinder --brdf-files aluminium brass chrome --num-lights 6
 ```
 
 ## ⚙️ 配置选项
