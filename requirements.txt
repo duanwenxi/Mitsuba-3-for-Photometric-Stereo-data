@@ -3,6 +3,11 @@ mitsuba>=3.0.0
 numpy>=1.20.0
 pyyaml>=5.4.0
 
+# Web 界面依赖
+flask>=2.0.0
+flask-socketio>=5.0.0
+pillow>=8.0.0
+
 # 可选依赖（推荐安装）
 opencv-python>=4.5.0  # 用于图像格式转换
 matplotlib>=3.3.0     # 用于数据集可视化

@@ -16,23 +16,24 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 import logging
 
+# 先设置 logging 配置
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 try:
     import mitsuba as mi
     # 使用最兼容的变体
     mi.set_variant('scalar_rgb')
     MITSUBA_AVAILABLE = True
-    logger.info("Mitsuba 加载成功，使用 scalar_rgb 变体")
+    logger.info("Mitsuba 3.7.1 加载成功，使用 scalar_rgb 变体")
 except ImportError:
     MITSUBA_AVAILABLE = False
-    print("警告: Mitsuba未安装，无法生成渲染数据")
+    logger.warning("Mitsuba未安装，无法生成渲染数据")
 except Exception as e:
     MITSUBA_AVAILABLE = False
-    print(f"警告: Mitsuba 初始化失败: {e}")
+    logger.error(f"Mitsuba 初始化失败: {e}")
 
 from brdf_renderer import MitsubaBRDFRenderer, LightingConfig, CameraConfig
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 
 class PhotometricStereoDataGenerator:
@@ -290,14 +291,37 @@ class PhotometricStereoDataGenerator:
                     }
                 }
                 
-                # 添加物体
-                if Path(obj_path).exists():
+                # 根据文件名选择几何体类型，避免OBJ加载问题
+                obj_name = Path(obj_path).stem.lower()
+                if 'sphere' in obj_name:
                     scene_dict['object'] = {
-                        'type': 'obj',
-                        'filename': obj_path,
+                        'type': 'sphere',
+                        'center': [0, 0, 0],
+                        'radius': 1.0,
+                        'bsdf': material
+                    }
+                elif 'cube' in obj_name:
+                    scene_dict['object'] = {
+                        'type': 'cube',
+                        'to_world': mi.ScalarTransform4f().scale([1.0, 1.0, 1.0]),
+                        'bsdf': material
+                    }
+                elif 'cylinder' in obj_name:
+                    scene_dict['object'] = {
+                        'type': 'cylinder',
+                        'p0': [0, -1, 0],
+                        'p1': [0, 1, 0],
+                        'radius': 1.0,
+                        'bsdf': material
+                    }
+                elif 'plane' in obj_name:
+                    scene_dict['object'] = {
+                        'type': 'rectangle',
+                        'to_world': mi.ScalarTransform4f().scale([2.0, 2.0, 1.0]),
                         'bsdf': material
                     }
                 else:
+                    # 默认使用球体
                     scene_dict['object'] = {
                         'type': 'sphere',
                         'center': [0, 0, 0],
@@ -371,14 +395,37 @@ class PhotometricStereoDataGenerator:
                 }
             }
             
-            # 添加物体
-            if Path(obj_path).exists():
+            # 根据文件名选择几何体类型，避免OBJ加载问题
+            obj_name = Path(obj_path).stem.lower()
+            if 'sphere' in obj_name:
                 scene_dict['object'] = {
-                    'type': 'obj',
-                    'filename': obj_path,
+                    'type': 'sphere',
+                    'center': [0, 0, 0],
+                    'radius': 1.0,
+                    'bsdf': {'type': 'diffuse', 'reflectance': 0.8}
+                }
+            elif 'cube' in obj_name:
+                scene_dict['object'] = {
+                    'type': 'cube',
+                    'to_world': mi.ScalarTransform4f().scale([1.0, 1.0, 1.0]),
+                    'bsdf': {'type': 'diffuse', 'reflectance': 0.8}
+                }
+            elif 'cylinder' in obj_name:
+                scene_dict['object'] = {
+                    'type': 'cylinder',
+                    'p0': [0, -1, 0],
+                    'p1': [0, 1, 0],
+                    'radius': 1.0,
+                    'bsdf': {'type': 'diffuse', 'reflectance': 0.8}
+                }
+            elif 'plane' in obj_name:
+                scene_dict['object'] = {
+                    'type': 'rectangle',
+                    'to_world': mi.ScalarTransform4f().scale([2.0, 2.0, 1.0]),
                     'bsdf': {'type': 'diffuse', 'reflectance': 0.8}
                 }
             else:
+                # 默认使用球体
                 scene_dict['object'] = {
                     'type': 'sphere',
                     'center': [0, 0, 0],

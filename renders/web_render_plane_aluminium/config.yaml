@@ -1,0 +1,74 @@
+camera:
+  intrinsic_matrix:
+    cx: 128.0
+    cy: 128.0
+    fx: 500.0
+    fy: 500.0
+lights:
+  count: 8
+  intensities:
+    light_1: 1.0
+    light_2: 1.0
+    light_3: 1.0
+    light_4: 1.0
+    light_5: 1.0
+    light_6: 1.0
+    light_7: 1.0
+    light_8: 1.0
+  positions:
+    light_1:
+    - 1.4
+    - 0.0
+    - 1.4
+    light_2:
+    - 0.9899494936611666
+    - 0.9899494936611664
+    - 1.4
+    light_3:
+    - 8.572527594031472e-17
+    - 1.4
+    - 1.4
+    light_4:
+    - -0.9899494936611664
+    - 0.9899494936611666
+    - 1.4
+    light_5:
+    - -1.4
+    - 1.7145055188062944e-16
+    - 1.4
+    light_6:
+    - -0.9899494936611667
+    - -0.9899494936611664
+    - 1.4
+    light_7:
+    - -2.5717582782094415e-16
+    - -1.4
+    - 1.4
+    light_8:
+    - 0.9899494936611662
+    - -0.9899494936611667
+    - 1.4
+reconstruction:
+  ground_truth_normal: web_render_plane_aluminium\images\ground_truth_normal.png
+  hog_regularization:
+    cells_per_block: !!python/tuple
+    - 2
+    - 2
+    enabled: false
+    lambda: 0.2
+    orientations: 9
+    pixels_per_cell: !!python/tuple
+    - 8
+    - 8
+  input_images:
+  - web_render_plane_aluminium\images\light_1.png
+  - web_render_plane_aluminium\images\light_2.png
+  - web_render_plane_aluminium\images\light_3.png
+  - web_render_plane_aluminium\images\light_4.png
+  - web_render_plane_aluminium\images\light_5.png
+  - web_render_plane_aluminium\images\light_6.png
+  - web_render_plane_aluminium\images\light_7.png
+  - web_render_plane_aluminium\images\light_8.png
+  mask_threshold: 0.1
+  output_normal_map: web_render_plane_aluminium\output\normal_map.png
+  shadow_threshold: 0.05
