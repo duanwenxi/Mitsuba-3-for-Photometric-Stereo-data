@@ -1,4 +1,5 @@
 // 光度立体渲染器 Web 应用 JavaScript
+// 支持单相机和光场相机阵列模式
 
 class RenderApp {
     constructor() {
@@ -8,12 +9,35 @@ class RenderApp {
         this.isRendering = false;
         this.lights = [];
         this.lightIdCounter = 0;
+        this.cameraMode = 'single'; // 'single' or 'lightfield'
 
         this.initializeElements();
         this.setupEventListeners();
         this.loadAvailableFiles();
-        // 添加一个默认光源
         this.addDefaultLight();
+
+        // 延迟初始化，确保DOM完全加载
+        setTimeout(() => {
+            // 确保初始状态正确
+            const cameraModeSelect = document.getElementById('cameraMode');
+            if (cameraModeSelect && cameraModeSelect.value !== 'single') {
+                cameraModeSelect.value = 'single';
+            }
+
+            // 确保显示状态正确
+            const singleSettings = document.getElementById('singleCameraSettings');
+            const lightfieldSettings = document.getElementById('lightfieldCameraSettings');
+
+            if (singleSettings && lightfieldSettings) {
+                singleSettings.style.display = 'block';
+                lightfieldSettings.style.display = 'none';
+                singleSettings.classList.add('active');
+                lightfieldSettings.classList.remove('active');
+            }
+
+            // 初始化光场预览
+            this.updateLightfieldPreview();
+        }, 200);
     }
 
     initializeElements() {
@@ -39,6 +63,13 @@ class RenderApp {
         this.lightsContainer = document.getElementById('lightsContainer');
         this.addLightBtn = document.getElementById('addLightBtn');
         this.lightCount = document.getElementById('lightCount');
+
+        // 光场相机元素
+        this.cameraMode = document.getElementById('cameraMode');
+        this.singleCameraSettings = document.getElementById('singleCameraSettings');
+        this.lightfieldCameraSettings = document.getElementById('lightfieldCameraSettings');
+        this.lightfieldPreview = document.getElementById('lightfieldPreview');
+        this.totalCameras = document.getElementById('totalCameras');
     }
 
     setupEventListeners() {
@@ -51,6 +82,29 @@ class RenderApp {
         // 添加光源按钮
         this.addLightBtn.addEventListener('click', () => {
             this.addLight(); // 默认添加点光源
+        });
+
+        // 相机模式切换
+        const cameraModeSelect = document.getElementById('cameraMode');
+        if (cameraModeSelect) {
+            cameraModeSelect.addEventListener('change', () => {
+                this.toggleCameraMode();
+            });
+        }
+
+        // 光场相机参数变化监听器
+        const lightfieldInputs = [
+            'lightfieldGridSize', 'lightfieldSpacingX', 'lightfieldSpacingY',
+            'lightfieldCenterX', 'lightfieldCenterY', 'lightfieldDistanceZ'
+        ];
+
+        lightfieldInputs.forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                input.addEventListener('input', () => {
+                    this.updateLightfieldPreview();
+                });
+            }
         });
 
         // Socket.IO 事件
@@ -183,14 +237,7 @@ class RenderApp {
 
     collectRenderParams() {
         const imageSize = parseInt(document.getElementById('imageSize').value);
-
-        // 收集相机参数
-        const cameraPosX = parseFloat(document.getElementById('cameraPosX').value);
-        const cameraPosY = parseFloat(document.getElementById('cameraPosY').value);
-        const cameraPosZ = parseFloat(document.getElementById('cameraPosZ').value);
-        const cameraTargetX = parseFloat(document.getElementById('cameraTargetX').value);
-        const cameraTargetY = parseFloat(document.getElementById('cameraTargetY').value);
-        const cameraTargetZ = parseFloat(document.getElementById('cameraTargetZ').value);
+        const cameraMode = document.getElementById('cameraMode').value;
 
         // 收集光源参数
         console.log('当前光源列表:', this.lights);
@@ -214,19 +261,53 @@ class RenderApp {
 
             return lightData;
         });
-        
+
         console.log('发送到后端的光源数据:', lightsData);
 
-        return {
+        const baseParams = {
             obj_name: this.objSelect.value,
             brdf_name: this.brdfSelect.value,
             lights: lightsData,
-            camera_fov: parseFloat(document.getElementById('cameraFov').value),
-            camera_position: [cameraPosX, cameraPosY, cameraPosZ],
-            camera_target: [cameraTargetX, cameraTargetY, cameraTargetZ],
             image_size: [imageSize, imageSize],
-            spp: parseInt(document.getElementById('spp').value)
+            spp: parseInt(document.getElementById('spp').value),
+            camera_mode: cameraMode
         };
+
+        if (cameraMode === 'single') {
+            // 单相机模式
+            const cameraPosX = parseFloat(document.getElementById('cameraPosX').value);
+            const cameraPosY = parseFloat(document.getElementById('cameraPosY').value);
+            const cameraPosZ = parseFloat(document.getElementById('cameraPosZ').value);
+            const cameraTargetX = parseFloat(document.getElementById('cameraTargetX').value);
+            const cameraTargetY = parseFloat(document.getElementById('cameraTargetY').value);
+            const cameraTargetZ = parseFloat(document.getElementById('cameraTargetZ').value);
+
+            baseParams.camera_fov = parseFloat(document.getElementById('cameraFov').value);
+            baseParams.camera_position = [cameraPosX, cameraPosY, cameraPosZ];
+            baseParams.camera_target = [cameraTargetX, cameraTargetY, cameraTargetZ];
+        } else {
+            // 光场相机模式
+            const gridSize = parseInt(document.getElementById('lightfieldGridSize').value);
+            const spacingX = parseFloat(document.getElementById('lightfieldSpacingX').value);
+            const spacingY = parseFloat(document.getElementById('lightfieldSpacingY').value);
+            const centerX = parseFloat(document.getElementById('lightfieldCenterX').value);
+            const centerY = parseFloat(document.getElementById('lightfieldCenterY').value);
+            const distanceZ = parseFloat(document.getElementById('lightfieldDistanceZ').value);
+            const targetX = parseFloat(document.getElementById('lightfieldTargetX').value);
+            const targetY = parseFloat(document.getElementById('lightfieldTargetY').value);
+            const targetZ = parseFloat(document.getElementById('lightfieldTargetZ').value);
+
+            baseParams.camera_fov = parseFloat(document.getElementById('lightfieldFov').value);
+            baseParams.lightfield_config = {
+                grid_size: gridSize,
+                spacing_x: spacingX,
+                spacing_y: spacingY,
+                center_position: [centerX, centerY, distanceZ],
+                target_position: [targetX, targetY, targetZ]
+            };
+        }
+
+        return baseParams;
     }
 
     addDefaultLight() {
@@ -619,11 +700,109 @@ class RenderApp {
         document.body.removeChild(link);
     }
 
+    toggleCameraMode() {
+        const cameraModeSelect = document.getElementById('cameraMode');
+        if (!cameraModeSelect) return;
+
+        const mode = cameraModeSelect.value;
+        this.cameraMode = mode;
+
+        const singleSettings = document.getElementById('singleCameraSettings');
+        const lightfieldSettings = document.getElementById('lightfieldCameraSettings');
+
+        if (!singleSettings || !lightfieldSettings) return;
+
+        // 移除之前的active类
+        singleSettings.classList.remove('active');
+        lightfieldSettings.classList.remove('active');
+
+        if (mode === 'single') {
+            singleSettings.style.display = 'block';
+            lightfieldSettings.style.display = 'none';
+            singleSettings.classList.add('active');
+        } else {
+            singleSettings.style.display = 'none';
+            lightfieldSettings.style.display = 'block';
+            lightfieldSettings.classList.add('active');
+            this.updateLightfieldPreview();
+        }
+    }
+
+    updateLightfieldPreview() {
+        const lightfieldPreview = document.getElementById('lightfieldPreview');
+        if (!lightfieldPreview) return;
+
+        const gridSize = parseInt(document.getElementById('lightfieldGridSize')?.value || 3);
+        const spacingX = parseFloat(document.getElementById('lightfieldSpacingX')?.value || 0.5);
+        const spacingY = parseFloat(document.getElementById('lightfieldSpacingY')?.value || 0.5);
+        const centerX = parseFloat(document.getElementById('lightfieldCenterX')?.value || 0);
+        const centerY = parseFloat(document.getElementById('lightfieldCenterY')?.value || 0);
+
+        // 更新总相机数
+        const totalCameras = gridSize * gridSize;
+        if (this.totalCameras) {
+            this.totalCameras.textContent = totalCameras;
+        }
+
+        // 生成相机位置预览
+        let previewHTML = `<div class="lightfield-grid-preview" style="grid-template-columns: repeat(${gridSize}, 1fr);">`;
+
+        for (let i = 0; i < gridSize; i++) {
+            for (let j = 0; j < gridSize; j++) {
+                const x = centerX + (j - (gridSize - 1) / 2) * spacingX;
+                const y = centerY + (i - (gridSize - 1) / 2) * spacingY;
+                const camNum = i * gridSize + j + 1;
+
+                previewHTML += `
+                    <div class="camera-position" title="相机 ${camNum}: (${x.toFixed(1)}, ${y.toFixed(1)})">
+                        ${camNum}
+                    </div>
+                `;
+            }
+        }
+
+        previewHTML += '</div>';
+        previewHTML += `
+            <div class="mt-3 text-center">
+                <small class="text-muted">
+                    <i class="bi bi-grid-3x3"></i>
+                    网格: ${gridSize}×${gridSize} | 间隔: X=${spacingX}, Y=${spacingY}<br>
+                    <i class="bi bi-crosshair"></i>
+                    中心: (${centerX}, ${centerY}) | 总计: ${totalCameras} 个视角
+                </small>
+            </div>
+        `;
+
+        lightfieldPreview.innerHTML = previewHTML;
+    }
+
+    generateLightfieldCameraPositions() {
+        const gridSize = parseInt(document.getElementById('lightfieldGridSize').value);
+        const spacingX = parseFloat(document.getElementById('lightfieldSpacingX').value);
+        const spacingY = parseFloat(document.getElementById('lightfieldSpacingY').value);
+        const centerX = parseFloat(document.getElementById('lightfieldCenterX').value);
+        const centerY = parseFloat(document.getElementById('lightfieldCenterY').value);
+        const distanceZ = parseFloat(document.getElementById('lightfieldDistanceZ').value);
+
+        const positions = [];
+        for (let i = 0; i < gridSize; i++) {
+            for (let j = 0; j < gridSize; j++) {
+                const x = centerX + (j - (gridSize - 1) / 2) * spacingX;
+                const y = centerY + (i - (gridSize - 1) / 2) * spacingY;
+                positions.push([x, y, distanceZ]);
+            }
+        }
+        return positions;
+    }
+
 
 }
 
 // 初始化应用
 let app;
 document.addEventListener('DOMContentLoaded', () => {
-    app = new RenderApp();
+    // 延迟初始化，确保所有元素都已渲染
+    setTimeout(() => {
+        app = new RenderApp();
+    }, 100);
 });

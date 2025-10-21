@@ -1,153 +1,109 @@
-# 光度立体渲染器
+# 光度立体渲染器 - 光场相机版本
 
-基于 Mitsuba 3 和 MERL BRDF 数据库的光度立体数据集生成工具，提供 Web 界面和命令行两种使用方式。
+基于 Mitsuba 3 的光度立体数据集生成工具，支持单相机和光场相机阵列两种渲染模式。
 
-## 核心特性
+## 功能特性
 
-- **Web 界面渲染** - 现代化浏览器界面，实时进度显示，网格预览
-- **RGB 彩色渲染** - 生成高质量 RGB 图像和法线图
-- **真实材质** - 支持 MERL BRDF 数据库 100+ 种真实材质
-- **灵活光源配置** - 点光源、平行光，支持自定义位置和强度
-- **批量生成** - 命令行工具支持批量生成数据集
-- **完整配置** - 自动生成包含相机、光源参数的配置文件
+### 渲染模式
+- **单相机模式**: 传统的单一视角渲染
+- **光场相机阵列模式**: n×n 相机阵列多视角渲染，模拟光场相机功能
 
-## 快速开始
+### 光场相机功能
+- 可配置的 n×n 相机阵列（无大小限制）
+- 自定义 X/Y 方向间隔距离
+- 灵活的中心位置和目标点设置
+- 实时相机位置预览
+- 自动计算总渲染视角数量
 
-### 安装依赖
+### 渲染特性
+- 支持多种光源类型（点光源、平行光）
+- 高质量 RGB 图像输出
+- 法线图自动生成
+- 实时渲染进度显示
+- 图像预览和下载功能
+
+## 安装要求
 
 ```bash
-pip install -r requirements.txt
+pip install flask flask-socketio pillow numpy mitsuba
 ```
 
-主要依赖：
-- Python 3.8+
-- Mitsuba 3
-- Flask + Flask-SocketIO（Web 版）
-- NumPy, PyYAML, Pillow
+## 使用方法
 
-### 方式一：Web 界面（推荐）
-
+### 启动服务器
 ```bash
-# 启动 Web 服务器
-python start_web.py
-
-# 或直接运行
 python web_render.py
 ```
 
-然后在浏览器中访问 `http://localhost:8081`
+访问 http://localhost:8082 打开 Web 界面。
 
-**Web 界面功能：**
-- 选择 OBJ 模型和 BRDF 材质
-- 配置相机参数（FOV、位置）
-- 设置光源（数量、分布、强度）
-- 调整渲染质量（分辨率、采样数）
-- 实时查看渲染进度
-- 网格预览所有结果
-- 点击图像放大查看
+### 光场相机设置
 
-### 方式二：命令行批量生成
+1. **选择相机模式**: 在"相机设置"中选择"光场相机阵列"
+2. **配置阵列参数**:
+   - **阵列大小**: 设置 n×n 网格大小
+   - **X/Y 间隔**: 相机之间的距离间隔
+   - **中心位置**: 阵列的中心坐标
+   - **目标位置**: 所有相机指向的目标点
+3. **预览确认**: 查看相机阵列布局预览
+4. **开始渲染**: 配置光源和材质后开始渲染
 
-```bash
-# 生成单个数据集
-python dataset_generator.py --single sphere,aluminium --num-lights 4
+### 相机位置计算
 
-# 批量生成
-python dataset_generator.py --obj-files sphere cube --brdf-files aluminium brass --num-lights 6
-
-# 自定义参数
-python dataset_generator.py \
-    --single sphere,chrome \
-    --num-lights 8 \
-    --image-size 512 512 \
-    --spp 128 \
-    --light-pattern hemisphere
-```
-
-## 数据集结构
-
-生成的数据集包含：
+对于 n×n 阵列，相机位置按以下公式计算：
 
 ```
-renders/
-└── {dataset_name}/
-    ├── images/
-    │   ├── light_1.png              # 光源1图像
-    │   ├── light_2.png              # 光源2图像
-    │   ├── ...
-    │   └── ground_truth_normal.png  # 法线图（Ground Truth）
-    ├── output/                      # 重建结果输出目录
-    └── config.yaml                  # 配置文件
+相机(i,j)的位置:
+x = center_x + (j - (n-1)/2) × spacing_x
+y = center_y + (i - (n-1)/2) × spacing_y
+z = distance_z
 ```
 
-配置文件包含：
-- 相机参数（FOV、位置、内参矩阵）
-- 光源信息（位置、类型、强度）
-- 图像路径和元数据
+## 输出文件
 
-## 命令行参数
+### 单相机模式
+- `light_XX.png`: 光源图像
+- `ground_truth_normal.png`: 法线图
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--obj-dir` | `objects` | OBJ 文件目录 |
-| `--brdf-dir` | `brdfs` | BRDF 文件目录 |
-| `--output-dir` | `renders` | 输出目录 |
-| `--num-lights` | `4` | 光源数量 |
-| `--light-pattern` | `hemisphere` | 光源分布（hemisphere/circle/grid） |
-| `--image-size` | `256 256` | 图像尺寸 |
-| `--spp` | `64` | 每像素采样数 |
-| `--single` | - | 生成单个数据集（格式：obj,brdf） |
+### 光场相机模式
+- `cam_XX_light_YY.png`: 相机XX的光源YY图像
+- `cam_XX_ground_truth_normal.png`: 相机XX的法线图
 
-## 项目结构
+其中 XX 为相机编号，YY 为光源编号。
+
+## 目录结构
 
 ```
-├── web_render.py           # Web 应用主程序
-├── start_web.py            # Web 启动脚本
-├── dataset_generator.py    # 数据集生成器（核心）
-├── brdf_renderer.py        # BRDF 渲染器
-├── scene_generator.py      # 场景生成器
-├── visualize_dataset.py    # 数据集可视化工具
-├── mitsuba_config_fix.py   # Mitsuba 配置修复
-├── templates/              # Web 模板
-│   └── index.html
-├── static/                 # Web 静态资源
-│   └── app.js
-├── objects/                # OBJ 模型文件
-├── brdfs/                  # BRDF 材质文件
-└── renders/                # 渲染输出目录
+├── web_render.py           # Web 服务器主程序
+├── dataset_generator.py    # 数据集生成器
+├── brdf_renderer.py       # BRDF 渲染器
+├── templates/
+│   └── index.html         # Web 界面模板
+├── static/
+│   └── app.js            # 前端 JavaScript
+├── objects/              # OBJ 模型文件目录
+├── brdfs/               # BRDF 材质文件目录
+└── renders/             # 渲染输出目录
 ```
 
-## 技术栈
+## 应用场景
 
-- **渲染引擎**: Mitsuba 3 (scalar_rgb)
-- **Web 框架**: Flask + Flask-SocketIO
-- **前端**: Bootstrap 5 + Vanilla JavaScript
-- **图像处理**: Pillow, NumPy
-- **配置**: PyYAML
+- **光度立体重建**: 多视角几何信息获取
+- **深度估计**: 结合视差和光度信息
+- **材质分析**: 不同视角的 BRDF 特性观察
+- **机器学习**: 多视角训练数据集生成
 
-## 常见问题
+## 技术实现
 
-**Q: Web 界面无法访问？**
-- 检查端口 8081 是否被占用
-- 确保防火墙允许访问
+- **前端**: Bootstrap + JavaScript，支持实时参数预览
+- **后端**: Flask + SocketIO，提供实时渲染进度反馈
+- **渲染引擎**: Mitsuba 3 光线追踪，支持高质量图像输出
+- **数据格式**: PNG 图像输出，支持缩略图和原图下载
 
-**Q: 渲染失败？**
-- 确保 `objects/` 和 `brdfs/` 目录中有文件
-- 检查 Mitsuba 是否正确安装
-- 查看控制台日志获取详细错误信息
+## 性能建议
 
-**Q: 如何生成测试模型？**
-```bash
-python scene_generator.py
-```
+- **快速预览**: 2×2 阵列，低采样数 (16 SPP)
+- **标准质量**: 3×3 阵列，中等采样数 (64 SPP)
+- **高质量**: 5×5 或更大阵列，高采样数 (256 SPP)
 
-**Q: 如何可视化已生成的数据集？**
-```bash
-python visualize_dataset.py --all
-```
-
-## 许可证
-
-MIT License - 允许自由使用、修改和分发
-
-**注意**: MERL BRDF 数据库仅供学术和研究使用
+渲染时间与相机数量成正比，请根据需求合理配置参数。

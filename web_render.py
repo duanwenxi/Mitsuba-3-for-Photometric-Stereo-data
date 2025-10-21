@@ -163,6 +163,21 @@ class WebRenderController:
         try:
             logger.info("开始渲染过程")
             
+            # 检查相机模式
+            camera_mode = params.get('camera_mode', 'single')
+            
+            if camera_mode == 'lightfield':
+                return self._render_lightfield_with_progress(obj_path, brdf_path, dataset_name, params)
+            else:
+                return self._render_single_camera_with_progress(obj_path, brdf_path, dataset_name, params)
+            
+        except Exception as e:
+            logger.error(f"渲染过程出错: {e}")
+            return False
+    
+    def _render_single_camera_with_progress(self, obj_path, brdf_path, dataset_name, params):
+        """单相机渲染"""
+        try:
             # 获取光源数量
             num_lights = len(params.get('lights', []))
             # 即使没有光源，也要渲染法线图
@@ -240,8 +255,146 @@ class WebRenderController:
             return True
             
         except Exception as e:
-            logger.error(f"渲染过程出错: {e}")
+            logger.error(f"单相机渲染过程出错: {e}")
             return False
+    
+    def _render_lightfield_with_progress(self, obj_path, brdf_path, dataset_name, params):
+        """光场相机渲染"""
+        try:
+            logger.info("开始光场相机渲染")
+            
+            # 获取光场配置
+            lightfield_config = params.get('lightfield_config', {})
+            grid_size = lightfield_config.get('grid_size', 3)
+            spacing_x = lightfield_config.get('spacing_x', 0.5)
+            spacing_y = lightfield_config.get('spacing_y', 0.5)
+            center_pos = lightfield_config.get('center_position', [0, 0, 5])
+            target_pos = lightfield_config.get('target_position', [0, 0, 0])
+            
+            # 生成相机位置
+            camera_positions = []
+            for i in range(grid_size):
+                for j in range(grid_size):
+                    x = center_pos[0] + (j - (grid_size - 1) / 2) * spacing_x
+                    y = center_pos[1] + (i - (grid_size - 1) / 2) * spacing_y
+                    z = center_pos[2]
+                    camera_positions.append([x, y, z])
+            
+            num_cameras = len(camera_positions)
+            num_lights = len(params.get('lights', []))
+            
+            # 计算总任务数：每个相机位置 × (光源数 + 法线图)
+            tasks_per_camera = max(num_lights, 1) + 1  # 光源图像 + 法线图
+            total_tasks = num_cameras * tasks_per_camera
+            
+            self.render_progress['total'] = total_tasks
+            current_task = 0
+            
+            # 为每个相机位置渲染
+            for cam_idx, camera_pos in enumerate(camera_positions):
+                logger.info(f"渲染相机位置 {cam_idx + 1}/{num_cameras}: {camera_pos}")
+                
+                # 创建子数据集名称
+                sub_dataset_name = f"{dataset_name}_cam_{cam_idx:02d}"
+                
+                # 渲染光源图像（如果有光源）
+                if num_lights > 0:
+                    for light_idx in range(num_lights):
+                        current_task += 1
+                        self.render_progress['current'] = current_task
+                        self.render_progress['current_image'] = f"cam_{cam_idx:02d}_light_{light_idx+1:02d}.png"
+                        self.render_progress['stage'] = f'渲染相机 {cam_idx+1} 光源图像'
+                        
+                        socketio.emit('render_progress', {
+                            'progress': self.render_progress,
+                            'status': 'rendering',
+                            'message': f'相机 {cam_idx+1}/{num_cameras} - 光源 {light_idx+1}/{num_lights}'
+                        })
+                        
+                        # 在第一个光源时执行实际渲染
+                        if light_idx == 0:
+                            success = self.generator.generate_custom_dataset(
+                                dataset_name=sub_dataset_name,
+                                obj_path=obj_path,
+                                brdf_path=brdf_path,
+                                lights=params['lights'],
+                                camera_fov=params['camera_fov'],
+                                camera_position=camera_pos,
+                                camera_target=target_pos,
+                                image_size=params['image_size'],
+                                spp=params['spp']
+                            )
+                            if not success:
+                                logger.error(f"相机 {cam_idx+1} 光源图像渲染失败")
+                                return False
+                        
+                        time.sleep(0.1)
+                
+                # 渲染法线图
+                current_task += 1
+                self.render_progress['current'] = current_task
+                self.render_progress['current_image'] = f"cam_{cam_idx:02d}_normal.png"
+                self.render_progress['stage'] = f'渲染相机 {cam_idx+1} 法线图'
+                
+                socketio.emit('render_progress', {
+                    'progress': self.render_progress,
+                    'status': 'rendering',
+                    'message': f'相机 {cam_idx+1}/{num_cameras} - 法线图'
+                })
+                
+                # 如果没有光源，只渲染法线图
+                if num_lights == 0:
+                    success = self._render_normal_only(
+                        obj_path=obj_path,
+                        dataset_name=sub_dataset_name,
+                        camera_fov=params['camera_fov'],
+                        camera_position=camera_pos,
+                        camera_target=target_pos,
+                        image_size=params['image_size'],
+                        spp=params['spp']
+                    )
+                    if not success:
+                        logger.error(f"相机 {cam_idx+1} 法线图渲染失败")
+                        return False
+                
+                time.sleep(0.1)
+            
+            # 合并所有相机的渲染结果到主数据集目录
+            self._merge_lightfield_results(dataset_name, num_cameras)
+            
+            logger.info("光场相机渲染完成")
+            return True
+            
+        except Exception as e:
+            logger.error(f"光场相机渲染过程出错: {e}")
+            return False
+    
+    def _merge_lightfield_results(self, dataset_name, num_cameras):
+        """合并光场相机的渲染结果"""
+        try:
+            main_images_dir = Path("renders") / dataset_name / "images"
+            main_images_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 复制所有子数据集的图像到主目录
+            for cam_idx in range(num_cameras):
+                sub_dataset_name = f"{dataset_name}_cam_{cam_idx:02d}"
+                sub_images_dir = Path("renders") / sub_dataset_name / "images"
+                
+                if sub_images_dir.exists():
+                    for image_file in sub_images_dir.glob("*.png"):
+                        # 重命名文件以包含相机索引
+                        new_name = f"cam_{cam_idx:02d}_{image_file.name}"
+                        new_path = main_images_dir / new_name
+                        
+                        # 复制文件
+                        import shutil
+                        shutil.copy2(image_file, new_path)
+                        logger.info(f"复制图像: {image_file} -> {new_path}")
+            
+            logger.info(f"光场结果合并完成: {main_images_dir}")
+            
+        except Exception as e:
+            logger.error(f"合并光场结果失败: {e}")
     
     def _render_normal_only(self, obj_path, dataset_name, camera_fov, camera_position, camera_target, image_size, spp):
         """只渲染法线图"""
@@ -278,11 +431,23 @@ class WebRenderController:
             self.rendered_images = []
             return
         
-        # 加载光源图像
-        light_files = sorted(images_dir.glob("light_*.png"))
+        # 加载所有图像文件
+        all_files = list(images_dir.glob("*.png"))
         
-        # 加载法线图
-        normal_files = list(images_dir.glob("*normal*.png"))
+        # 分类图像文件
+        light_files = []
+        normal_files = []
+        
+        for file in all_files:
+            filename = file.name.lower()
+            if 'normal' in filename:
+                normal_files.append(file)
+            elif 'light' in filename or 'cam_' in filename:
+                light_files.append(file)
+        
+        # 排序文件
+        light_files = sorted(light_files)
+        normal_files = sorted(normal_files)
         
         # 合并所有图像文件
         self.rendered_images = [str(f) for f in light_files] + [str(f) for f in normal_files]
@@ -325,17 +490,37 @@ class WebRenderController:
                     
                     # 判断图像类型
                     filename = Path(image_path).name.lower()
+                    import re
+                    
                     if 'normal' in filename:
                         image_type = 'normal'
-                        display_name = '法线图'
-                        light_id = None
+                        # 检查是否是光场相机的法线图
+                        cam_match = re.search(r'cam_(\d+)', filename)
+                        if cam_match:
+                            cam_id = int(cam_match.group(1)) + 1  # 从0开始转为从1开始
+                            display_name = f'相机 {cam_id} - 法线图'
+                            light_id = f'cam_{cam_id}'
+                        else:
+                            display_name = '法线图'
+                            light_id = None
                     else:
                         image_type = 'light'
-                        # 从文件名提取光源编号
-                        import re
-                        match = re.search(r'light_(\d+)', filename)
-                        light_id = int(match.group(1)) if match else i + 1
-                        display_name = f'光源 {light_id}'
+                        # 检查是否是光场相机的光源图像
+                        cam_match = re.search(r'cam_(\d+)', filename)
+                        light_match = re.search(r'light_(\d+)', filename)
+                        
+                        if cam_match and light_match:
+                            cam_id = int(cam_match.group(1)) + 1  # 从0开始转为从1开始
+                            light_num = int(light_match.group(1))
+                            display_name = f'相机 {cam_id} - 光源 {light_num}'
+                            light_id = f'cam_{cam_id}_light_{light_num}'
+                        elif light_match:
+                            light_num = int(light_match.group(1))
+                            display_name = f'光源 {light_num}'
+                            light_id = light_num
+                        else:
+                            display_name = f'光源 {i + 1}'
+                            light_id = i + 1
                     
                     all_images.append({
                         'data': f'data:image/png;base64,{img_data}',
@@ -437,7 +622,7 @@ def main():
         print(f"✓ 目录 {dir_name}")
     
     print()
-    print("服务器将在 http://localhost:8081 启动")
+    print("服务器将在 http://localhost:8082 启动")
     print("按 Ctrl+C 停止服务器")
     print()
     
@@ -446,7 +631,7 @@ def main():
         socketio.run(
             app, 
             host='0.0.0.0', 
-            port=8081, 
+            port=8082, 
             debug=False, 
             log_output=True,
             allow_unsafe_werkzeug=True

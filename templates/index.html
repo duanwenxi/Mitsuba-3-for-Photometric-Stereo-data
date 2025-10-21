@@ -139,6 +139,55 @@
                 flex: 0 0 calc(33.333% - 1rem);
             }
         }
+        
+        /* 光场相机样式 */
+        #lightfieldPreview {
+            transition: all 0.3s ease;
+        }
+        
+        .camera-mode-section {
+            border: 2px solid transparent;
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.3s ease;
+        }
+        
+        .camera-mode-section.active {
+            border-color: #007bff;
+            background-color: #f8f9ff;
+        }
+        
+        .lightfield-grid-preview {
+            display: grid;
+            gap: 4px;
+            max-width: 200px;
+            margin: 0 auto;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .camera-position {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            padding: 6px;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.7em;
+            font-weight: 600;
+            min-height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .camera-position:hover {
+            transform: scale(1.1);
+            box-shadow: 0 2px 8px rgba(0,123,255,0.3);
+        }
     </style>
 </head>
 <body>
@@ -184,38 +233,120 @@
                             <!-- 相机参数 -->
                             <div class="param-section">
                                 <h6>相机设置</h6>
-                                <div class="row mb-2">
-                                    <div class="col-12">
-                                        <label class="form-label">FOV (度)</label>
-                                        <input type="number" class="form-control" id="cameraFov" value="45" min="10" max="120">
+                                
+                                <!-- 相机模式选择 -->
+                                <div class="mb-3">
+                                    <label class="form-label">相机模式</label>
+                                    <select class="form-select" id="cameraMode">
+                                        <option value="single" selected>单相机</option>
+                                        <option value="lightfield">光场相机阵列</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- 单相机设置 -->
+                                <div id="singleCameraSettings" class="camera-mode-section active">
+                                    <div class="row mb-2">
+                                        <div class="col-12">
+                                            <label class="form-label">FOV (度)</label>
+                                            <input type="number" class="form-control" id="cameraFov" value="45" min="10" max="120">
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-4">
+                                            <label class="form-label">位置 X</label>
+                                            <input type="number" class="form-control" id="cameraPosX" value="0" step="0.1">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label">位置 Y</label>
+                                            <input type="number" class="form-control" id="cameraPosY" value="0" step="0.1">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label">位置 Z</label>
+                                            <input type="number" class="form-control" id="cameraPosZ" value="5" step="0.1">
+                                        </div>
+                                    </div>
+                                    <div class="row mt-2">
+                                        <div class="col-4">
+                                            <label class="form-label">目标 X</label>
+                                            <input type="number" class="form-control" id="cameraTargetX" value="0" step="0.1">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label">目标 Y</label>
+                                            <input type="number" class="form-control" id="cameraTargetY" value="0" step="0.1">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label">目标 Z</label>
+                                            <input type="number" class="form-control" id="cameraTargetZ" value="0" step="0.1">
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="row">
-                                    <div class="col-4">
-                                        <label class="form-label">位置 X</label>
-                                        <input type="number" class="form-control" id="cameraPosX" value="0" step="0.1">
+                                
+                                <!-- 光场相机设置 -->
+                                <div id="lightfieldCameraSettings" class="camera-mode-section" style="display: none;">
+                                    <div class="row mb-2">
+                                        <div class="col-6">
+                                            <label class="form-label">FOV (度)</label>
+                                            <input type="number" class="form-control" id="lightfieldFov" value="45" min="10" max="120">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label">阵列大小 (n×n)</label>
+                                            <input type="number" class="form-control" id="lightfieldGridSize" value="3" min="1">
+                                        </div>
                                     </div>
-                                    <div class="col-4">
-                                        <label class="form-label">位置 Y</label>
-                                        <input type="number" class="form-control" id="cameraPosY" value="0" step="0.1">
+                                    
+                                    <div class="row mb-2">
+                                        <div class="col-6">
+                                            <label class="form-label">X 间隔</label>
+                                            <input type="number" class="form-control" id="lightfieldSpacingX" value="0.5" step="0.1" min="0.1">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label">Y 间隔</label>
+                                            <input type="number" class="form-control" id="lightfieldSpacingY" value="0.5" step="0.1" min="0.1">
+                                        </div>
                                     </div>
-                                    <div class="col-4">
-                                        <label class="form-label">位置 Z</label>
-                                        <input type="number" class="form-control" id="cameraPosZ" value="5" step="0.1">
+                                    
+                                    <div class="row mb-2">
+                                        <div class="col-4">
+                                            <label class="form-label">中心位置 X</label>
+                                            <input type="number" class="form-control" id="lightfieldCenterX" value="0" step="0.1">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label">中心位置 Y</label>
+                                            <input type="number" class="form-control" id="lightfieldCenterY" value="0" step="0.1">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label">距离 Z</label>
+                                            <input type="number" class="form-control" id="lightfieldDistanceZ" value="5" step="0.1">
+                                        </div>
                                     </div>
-                                </div>
-                                <div class="row mt-2">
-                                    <div class="col-4">
-                                        <label class="form-label">目标 X</label>
-                                        <input type="number" class="form-control" id="cameraTargetX" value="0" step="0.1">
+                                    
+                                    <div class="row">
+                                        <div class="col-4">
+                                            <label class="form-label">目标 X</label>
+                                            <input type="number" class="form-control" id="lightfieldTargetX" value="0" step="0.1">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label">目标 Y</label>
+                                            <input type="number" class="form-control" id="lightfieldTargetY" value="0" step="0.1">
+                                        </div>
+                                        <div class="col-4">
+                                            <label class="form-label">目标 Z</label>
+                                            <input type="number" class="form-control" id="lightfieldTargetZ" value="0" step="0.1">
+                                        </div>
                                     </div>
-                                    <div class="col-4">
-                                        <label class="form-label">目标 Y</label>
-                                        <input type="number" class="form-control" id="cameraTargetY" value="0" step="0.1">
-                                    </div>
-                                    <div class="col-4">
-                                        <label class="form-label">目标 Z</label>
-                                        <input type="number" class="form-control" id="cameraTargetZ" value="0" step="0.1">
+                                    
+                                    <!-- 光场相机预览 -->
+                                    <div class="mt-3">
+                                        <label class="form-label">相机阵列预览</label>
+                                        <div id="lightfieldPreview" class="border rounded p-2" style="background: #f8f9fa; min-height: 120px;">
+                                            <div class="text-center text-muted">
+                                                <small>相机位置将显示在这里</small>
+                                            </div>
+                                        </div>
+                                        <small class="text-muted">
+                                            <i class="bi bi-info-circle"></i>
+                                            总共将渲染 <span id="totalCameras">9</span> 个视角
+                                        </small>
                                     </div>
                                 </div>
                             </div>
