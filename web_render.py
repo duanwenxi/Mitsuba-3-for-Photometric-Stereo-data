@@ -78,9 +78,10 @@ class WebRenderController:
             logger.info("渲染线程开始")
             
             # 初始化进度
+            num_lights = len(params.get('lights', []))
             self.render_progress = {
                 'current': 0,
-                'total': params['num_lights'],
+                'total': num_lights,
                 'current_image': '',
                 'stage': '初始化'
             }
@@ -162,43 +163,79 @@ class WebRenderController:
         try:
             logger.info("开始渲染过程")
             
-            # 模拟渲染过程中的进度更新
-            for i in range(params['num_lights']):
-                self.render_progress['current'] = i + 1
-                self.render_progress['current_image'] = f"light_{i+1:02d}.png"
-                self.render_progress['stage'] = '渲染图像'
-                
-                # 发送进度更新
-                socketio.emit('render_progress', {
-                    'progress': self.render_progress,
-                    'status': 'rendering',
-                    'message': f'渲染第 {i+1}/{params["num_lights"]} 张 RGB 图像...'
-                })
-                
-                # 在第一次迭代时执行实际渲染
-                if i == 0:
-                    logger.info("执行实际渲染...")
-                    success = self.generator.generate_single_dataset(
-                        dataset_name=dataset_name,
-                        obj_path=obj_path,
-                        brdf_path=brdf_path,
-                        num_lights=params['num_lights'],
-                        light_pattern=params['light_pattern'],
-                        light_distance=params['light_distance'],
-                        light_intensity=params['light_intensity'],
-                        camera_fov=params['camera_fov'],
-                        camera_position=params['camera_position'],
-                        camera_target=params['camera_target'],
-                        image_size=params['image_size'],
-                        spp=params['spp']
-                    )
-                    if not success:
-                        logger.error("渲染失败")
-                        return False
-                    logger.info("实际渲染完成")
-                
-                # 模拟渲染时间
-                time.sleep(0.3)
+            # 获取光源数量
+            num_lights = len(params.get('lights', []))
+            # 即使没有光源，也要渲染法线图
+            total_tasks = max(num_lights, 1)  # 至少有一个任务（法线图）
+            
+            # 更新总任务数（光源图像 + 法线图）
+            self.render_progress['total'] = total_tasks + 1  # +1 for normal map
+            
+            # 渲染光源图像（如果有光源的话）
+            if num_lights > 0:
+                for i in range(num_lights):
+                    self.render_progress['current'] = i + 1
+                    self.render_progress['current_image'] = f"light_{i+1:02d}.png"
+                    self.render_progress['stage'] = '渲染光源图像'
+                    
+                    # 发送进度更新
+                    socketio.emit('render_progress', {
+                        'progress': self.render_progress,
+                        'status': 'rendering',
+                        'message': f'渲染第 {i+1}/{num_lights} 张光源图像...'
+                    })
+                    
+                    # 在第一次迭代时执行实际渲染
+                    if i == 0:
+                        logger.info("执行光源图像渲染...")
+                        success = self.generator.generate_custom_dataset(
+                            dataset_name=dataset_name,
+                            obj_path=obj_path,
+                            brdf_path=brdf_path,
+                            lights=params['lights'],
+                            camera_fov=params['camera_fov'],
+                            camera_position=params['camera_position'],
+                            camera_target=params['camera_target'],
+                            image_size=params['image_size'],
+                            spp=params['spp']
+                        )
+                        if not success:
+                            logger.error("光源图像渲染失败")
+                            return False
+                        logger.info("光源图像渲染完成")
+                    
+                    # 模拟渲染时间
+                    time.sleep(0.3)
+            
+            # 渲染法线图
+            self.render_progress['current'] = total_tasks + 1
+            self.render_progress['current_image'] = "ground_truth_normal.png"
+            self.render_progress['stage'] = '渲染法线图'
+            
+            socketio.emit('render_progress', {
+                'progress': self.render_progress,
+                'status': 'rendering',
+                'message': '渲染法线图...'
+            })
+            
+            # 如果没有光源，只渲染法线图
+            if num_lights == 0:
+                logger.info("没有光源，只渲染法线图...")
+                success = self._render_normal_only(
+                    obj_path=obj_path,
+                    dataset_name=dataset_name,
+                    camera_fov=params['camera_fov'],
+                    camera_position=params['camera_position'],
+                    camera_target=params['camera_target'],
+                    image_size=params['image_size'],
+                    spp=params['spp']
+                )
+                if not success:
+                    logger.error("法线图渲染失败")
+                    return False
+                logger.info("法线图渲染完成")
+            
+            time.sleep(0.3)
             
             return True
             
@@ -206,8 +243,34 @@ class WebRenderController:
             logger.error(f"渲染过程出错: {e}")
             return False
     
+    def _render_normal_only(self, obj_path, dataset_name, camera_fov, camera_position, camera_target, image_size, spp):
+        """只渲染法线图"""
+        try:
+            # 创建数据集目录
+            dataset_dir = Path("renders") / dataset_name
+            images_dir = dataset_dir / "images"
+            images_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 渲染法线图
+            normal_map_path = images_dir / "ground_truth_normal.png"
+            success = self.generator.render_normal_map(
+                obj_path=obj_path,
+                output_path=normal_map_path,
+                image_size=tuple(image_size),
+                spp=spp,
+                camera_fov=camera_fov,
+                camera_position=tuple(camera_position),
+                camera_target=tuple(camera_target)
+            )
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"法线图渲染失败: {e}")
+            return False
+    
     def _load_rendered_images(self, dataset_name):
-        """加载渲染的图像"""
+        """加载渲染的图像（包含光源图像和法线图）"""
         images_dir = Path("renders") / dataset_name / "images"
         
         if not images_dir.exists():
@@ -215,10 +278,16 @@ class WebRenderController:
             self.rendered_images = []
             return
         
-        # 获取所有图像文件
-        image_files = sorted(images_dir.glob("*.png"))
-        self.rendered_images = [str(f) for f in image_files]
-        logger.info(f"加载了 {len(self.rendered_images)} 张渲染图像")
+        # 加载光源图像
+        light_files = sorted(images_dir.glob("light_*.png"))
+        
+        # 加载法线图
+        normal_files = list(images_dir.glob("*normal*.png"))
+        
+        # 合并所有图像文件
+        self.rendered_images = [str(f) for f in light_files] + [str(f) for f in normal_files]
+        
+        logger.info(f"加载了 {len(light_files)} 张光源图像和 {len(normal_files)} 张法线图，总计 {len(self.rendered_images)} 张图像")
     
     def _get_all_images_data(self):
         """获取所有图像数据"""
@@ -254,12 +323,28 @@ class WebRenderController:
                     large_img.save(large_buffer, format='PNG')
                     large_img_data = base64.b64encode(large_buffer.getvalue()).decode()
                     
+                    # 判断图像类型
+                    filename = Path(image_path).name.lower()
+                    if 'normal' in filename:
+                        image_type = 'normal'
+                        display_name = '法线图'
+                        light_id = None
+                    else:
+                        image_type = 'light'
+                        # 从文件名提取光源编号
+                        import re
+                        match = re.search(r'light_(\d+)', filename)
+                        light_id = int(match.group(1)) if match else i + 1
+                        display_name = f'光源 {light_id}'
+                    
                     all_images.append({
                         'data': f'data:image/png;base64,{img_data}',
                         'large_data': f'data:image/png;base64,{large_img_data}',
                         'name': Path(image_path).name,
+                        'display_name': display_name,
                         'index': i,
-                        'light_id': i + 1,
+                        'light_id': light_id,
+                        'type': image_type,
                         'size': thumbnail.size,
                         'original_size': img.size
                     })
@@ -352,7 +437,7 @@ def main():
         print(f"✓ 目录 {dir_name}")
     
     print()
-    print("服务器将在 http://localhost:8080 启动")
+    print("服务器将在 http://localhost:8081 启动")
     print("按 Ctrl+C 停止服务器")
     print()
     
@@ -361,7 +446,7 @@ def main():
         socketio.run(
             app, 
             host='0.0.0.0', 
-            port=8080, 
+            port=8081, 
             debug=False, 
             log_output=True,
             allow_unsafe_werkzeug=True

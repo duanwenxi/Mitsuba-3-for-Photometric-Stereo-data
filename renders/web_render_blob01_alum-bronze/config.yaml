@@ -1,0 +1,23 @@
+camera:
+  fov: 45
+  position:
+  - 0
+  - 0
+  - 50
+  target:
+  - 0
+  - 0
+  - 0
+dataset_name: web_render_blob01_alum-bronze
+image_size:
+- 256
+- 256
+lights:
+- direction: null
+  intensity: 300
+  position:
+  - 2
+  - 2
+  - 50
+  type: point
+num_lights: 1

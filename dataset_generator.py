@@ -173,47 +173,184 @@ class PhotometricStereoDataGenerator:
         
         return config
     
-    def _create_simple_material(self, brdf_name: str) -> Dict:
+    def _load_brdf_albedo(self, brdf_path: str) -> float:
         """
-        创建简单材质（避免复杂的BRDF加载问题）
+        从 BRDF 文件中提取平均反射率（亮度）
+        
+        注意：MERL BRDF 数据库是灰度的，不包含颜色信息
+        
+        Args:
+            brdf_path: BRDF 文件路径
+            
+        Returns:
+            平均反射率 (0-1)
+        """
+        try:
+            import struct
+            with open(brdf_path, 'rb') as f:
+                # 读取维度
+                dims = struct.unpack('3i', f.read(12))
+                total_points = dims[0] * dims[1] * dims[2]
+                
+                # 读取 BRDF 数据（只读取一个通道即可，因为是灰度的）
+                brdf_bytes = f.read(total_points * 3 * 8)
+                brdf_flat = struct.unpack(f'{total_points * 3}d', brdf_bytes)
+                brdf_data = np.array(brdf_flat).reshape(dims[0], dims[1], dims[2], 3)
+                
+                # 不应用缩放因子，使用原始数据
+                brdf_data = np.maximum(brdf_data, 0.0)
+                
+                # 计算平均反射率（使用中等角度的数据）
+                start_idx = dims[0] // 4
+                end_idx = dims[0] * 3 // 4
+                mid_data = brdf_data[start_idx:end_idx, start_idx:end_idx, :, 0]  # 只用R通道
+                
+                # 计算平均值并归一化
+                mean_albedo = mid_data.mean()
+                
+                # 归一化到 0.5-0.9 范围（提高最小值以确保可见性）
+                # MERL 数据范围很大，需要对数缩放
+                if mean_albedo > 0:
+                    # 使用对数缩放
+                    log_albedo = np.log10(mean_albedo + 1)
+                    normalized = np.clip(log_albedo / 5.0, 0.5, 0.9)
+                else:
+                    normalized = 0.7
+                
+                logger.info(f"从 BRDF 提取反射率: {Path(brdf_path).name} -> {normalized:.3f}")
+                return float(normalized)
+                
+        except Exception as e:
+            logger.warning(f"无法从 BRDF 提取反射率 {brdf_path}: {e}")
+            return 0.7
+    
+    def _create_simple_material(self, brdf_name: str, brdf_path: str = None) -> Dict:
+        """
+        创建简单材质（根据名称选择颜色，从 BRDF 提取亮度）
         
         Args:
             brdf_name: BRDF文件名
+            brdf_path: BRDF文件路径（可选）
             
         Returns:
             材质字典
         """
-        # 检测是否为金属
-        metallic_keywords = ['metal', 'steel', 'brass', 'chrome', 'alumin', 'gold', 'silver', 'copper', 'nickel']
-        is_metallic = any(kw in brdf_name.lower() for kw in metallic_keywords)
+        brdf_lower = brdf_name.lower()
         
-        if is_metallic:
-            # 根据名称选择金属类型
-            if 'gold' in brdf_name.lower():
-                metal = 'Au'
-            elif 'silver' in brdf_name.lower():
-                metal = 'Ag'
-            elif 'copper' in brdf_name.lower():
-                metal = 'Cu'
-            elif 'alumin' in brdf_name.lower():
-                metal = 'Al'
-            elif 'chrome' in brdf_name.lower():
-                metal = 'Cr'
+        # 从 BRDF 文件加载反射率（亮度）
+        albedo = 0.7  # 默认值
+        if brdf_path and Path(brdf_path).exists():
+            albedo = self._load_brdf_albedo(brdf_path)
+        
+        # 检测是否为纯金属（排除金属漆等涂层材质）
+        pure_metal_keywords = ['steel', 'brass', 'chrome', 'alumin', 'silver', 'copper', 'nickel']
+        is_pure_metal = any(kw in brdf_lower for kw in pure_metal_keywords)
+        
+        # 金属漆等涂层材质应该使用漫反射
+        is_paint = 'paint' in brdf_lower or 'coat' in brdf_lower
+        
+        if is_pure_metal and not is_paint:
+            # 根据名称选择金属类型和颜色
+            # 注意：只能使用 material 或 (eta, k)，不能同时使用
+            if 'gold' in brdf_lower:
+                # 金色 - 使用预定义材质
+                return {
+                    'type': 'roughconductor',
+                    'alpha': 0.1,
+                    'material': 'Au'
+                }
+            elif 'silver' in brdf_lower:
+                # 银色
+                return {
+                    'type': 'roughconductor',
+                    'alpha': 0.1,
+                    'material': 'Ag'
+                }
+            elif 'copper' in brdf_lower:
+                # 铜色
+                return {
+                    'type': 'roughconductor',
+                    'alpha': 0.1,
+                    'material': 'Cu'
+                }
+            elif 'alumin' in brdf_lower:
+                # 铝色
+                return {
+                    'type': 'roughconductor',
+                    'alpha': 0.1,
+                    'material': 'Al'
+                }
+            elif 'chrome' in brdf_lower:
+                # 铬色
+                return {
+                    'type': 'roughconductor',
+                    'alpha': 0.05,
+                    'material': 'Cr'
+                }
+            elif 'brass' in brdf_lower:
+                # 黄铜色 - 使用自定义 eta/k
+                return {
+                    'type': 'roughconductor',
+                    'alpha': 0.15,
+                    'eta': {'type': 'rgb', 'value': [0.618, 0.425, 0.206]},
+                    'k': {'type': 'rgb', 'value': [3.580, 2.376, 1.560]}
+                }
+            elif 'nickel' in brdf_lower:
+                # 镍色
+                return {
+                    'type': 'roughconductor',
+                    'alpha': 0.1,
+                    'material': 'Ni'
+                }
             else:
-                metal = 'Al'  # 默认铝
-            
-            return {
-                'type': 'roughconductor',
-                'alpha': 0.1,
-                'material': metal
-            }
+                # 默认铝
+                return {
+                    'type': 'roughconductor',
+                    'alpha': 0.1,
+                    'material': 'Al'
+                }
         else:
-            # 非金属材质
+            # 非金属材质（包括漆面、织物等）- 根据名称选择基础颜色，用 BRDF 反射率调整亮度
+            if 'red' in brdf_lower or 'brick' in brdf_lower:
+                base_color = np.array([1.0, 0.2, 0.2])  # 红色
+            elif 'blue' in brdf_lower:
+                base_color = np.array([0.2, 0.4, 1.0])  # 蓝色
+            elif 'green' in brdf_lower:
+                base_color = np.array([0.2, 1.0, 0.3])  # 绿色
+            elif 'yellow' in brdf_lower:
+                base_color = np.array([1.0, 1.0, 0.2])  # 黄色
+            elif 'orange' in brdf_lower:
+                base_color = np.array([1.0, 0.5, 0.1])  # 橙色
+            elif 'purple' in brdf_lower or 'violet' in brdf_lower:
+                base_color = np.array([0.8, 0.2, 1.0])  # 紫色
+            elif 'pink' in brdf_lower:
+                base_color = np.array([1.0, 0.4, 0.6])  # 粉色
+            elif 'brown' in brdf_lower or 'wood' in brdf_lower:
+                base_color = np.array([0.8, 0.5, 0.3])  # 棕色
+            elif 'aventurine' in brdf_lower or 'aventurnine' in brdf_lower:
+                base_color = np.array([0.3, 0.8, 0.5])  # 东陵石绿色
+            elif 'pearl' in brdf_lower:
+                base_color = np.array([1.0, 1.0, 0.9])  # 珍珠白
+            elif 'gold' in brdf_lower:
+                base_color = np.array([1.0, 0.8, 0.2])  # 金色
+            elif 'beige' in brdf_lower:
+                base_color = np.array([0.9, 0.85, 0.7])  # 米色
+            elif 'white' in brdf_lower:
+                base_color = np.array([1.0, 1.0, 1.0])  # 白色
+            elif 'black' in brdf_lower:
+                base_color = np.array([0.3, 0.3, 0.3])  # 黑色（提高亮度以确保可见性）
+            else:
+                # 默认中性色
+                base_color = np.array([0.8, 0.8, 0.8])
+            
+            # 用 BRDF 反射率调整颜色亮度
+            color = (base_color * albedo).tolist()
+            
             return {
                 'type': 'diffuse',
                 'reflectance': {
                     'type': 'rgb',
-                    'value': [0.8, 0.8, 0.8]
+                    'value': color
                 }
             }
     
@@ -253,9 +390,9 @@ class PhotometricStereoDataGenerator:
         images_dir = output_dir / "images"
         images_dir.mkdir(parents=True, exist_ok=True)
         
-        # 创建简单材质
+        # 创建简单材质（传入 BRDF 路径以提取真实颜色）
         brdf_name = Path(brdf_path).stem
-        material = self._create_simple_material(brdf_name)
+        material = self._create_simple_material(brdf_name, brdf_path)
         
         # 渲染每个光源
         for i, light_pos in enumerate(light_positions, 1):
@@ -291,37 +428,15 @@ class PhotometricStereoDataGenerator:
                     }
                 }
                 
-                # 根据文件名选择几何体类型，避免OBJ加载问题
-                obj_name = Path(obj_path).stem.lower()
-                if 'sphere' in obj_name:
+                # 直接加载 OBJ 文件
+                if Path(obj_path).exists():
                     scene_dict['object'] = {
-                        'type': 'sphere',
-                        'center': [0, 0, 0],
-                        'radius': 1.0,
-                        'bsdf': material
-                    }
-                elif 'cube' in obj_name:
-                    scene_dict['object'] = {
-                        'type': 'cube',
-                        'to_world': mi.ScalarTransform4f().scale([1.0, 1.0, 1.0]),
-                        'bsdf': material
-                    }
-                elif 'cylinder' in obj_name:
-                    scene_dict['object'] = {
-                        'type': 'cylinder',
-                        'p0': [0, -1, 0],
-                        'p1': [0, 1, 0],
-                        'radius': 1.0,
-                        'bsdf': material
-                    }
-                elif 'plane' in obj_name:
-                    scene_dict['object'] = {
-                        'type': 'rectangle',
-                        'to_world': mi.ScalarTransform4f().scale([2.0, 2.0, 1.0]),
+                        'type': 'obj',
+                        'filename': str(obj_path),
                         'bsdf': material
                     }
                 else:
-                    # 默认使用球体
+                    # 如果文件不存在，使用默认球体
                     scene_dict['object'] = {
                         'type': 'sphere',
                         'center': [0, 0, 0],
@@ -395,37 +510,15 @@ class PhotometricStereoDataGenerator:
                 }
             }
             
-            # 根据文件名选择几何体类型，避免OBJ加载问题
-            obj_name = Path(obj_path).stem.lower()
-            if 'sphere' in obj_name:
+            # 直接加载 OBJ 文件
+            if Path(obj_path).exists():
                 scene_dict['object'] = {
-                    'type': 'sphere',
-                    'center': [0, 0, 0],
-                    'radius': 1.0,
-                    'bsdf': {'type': 'diffuse', 'reflectance': 0.8}
-                }
-            elif 'cube' in obj_name:
-                scene_dict['object'] = {
-                    'type': 'cube',
-                    'to_world': mi.ScalarTransform4f().scale([1.0, 1.0, 1.0]),
-                    'bsdf': {'type': 'diffuse', 'reflectance': 0.8}
-                }
-            elif 'cylinder' in obj_name:
-                scene_dict['object'] = {
-                    'type': 'cylinder',
-                    'p0': [0, -1, 0],
-                    'p1': [0, 1, 0],
-                    'radius': 1.0,
-                    'bsdf': {'type': 'diffuse', 'reflectance': 0.8}
-                }
-            elif 'plane' in obj_name:
-                scene_dict['object'] = {
-                    'type': 'rectangle',
-                    'to_world': mi.ScalarTransform4f().scale([2.0, 2.0, 1.0]),
+                    'type': 'obj',
+                    'filename': str(obj_path),
                     'bsdf': {'type': 'diffuse', 'reflectance': 0.8}
                 }
             else:
-                # 默认使用球体
+                # 如果文件不存在，使用默认球体
                 scene_dict['object'] = {
                     'type': 'sphere',
                     'center': [0, 0, 0],
@@ -490,7 +583,14 @@ class PhotometricStereoDataGenerator:
         
         images_dir = dataset_dir / "images"
         output_dir = dataset_dir / "output"
-        images_dir.mkdir(exist_ok=True)
+        
+        # 清理旧的图像文件（保留目录结构）
+        if images_dir.exists():
+            import shutil
+            logger.info(f"清理旧的渲染结果: {images_dir}")
+            shutil.rmtree(images_dir)
+        
+        images_dir.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(exist_ok=True)
         
         # 生成光源位置
@@ -545,6 +645,228 @@ class PhotometricStereoDataGenerator:
         
         logger.info(f"数据集生成完成: {dataset_name}")
         return True
+    
+    def generate_custom_dataset(self,
+                              dataset_name: str,
+                              obj_path: str,
+                              brdf_path: str,
+                              lights: List[Dict],
+                              camera_fov: float = 45.0,
+                              camera_position: Tuple[float, float, float] = (0, 0, 5),
+                              camera_target: Tuple[float, float, float] = (0, 0, 0),
+                              image_size: Tuple[int, int] = (256, 256),
+                              spp: int = 64) -> bool:
+        """
+        使用自定义光源生成数据集
+        
+        Args:
+            dataset_name: 数据集名称
+            obj_path: OBJ文件路径
+            brdf_path: BRDF文件路径
+            lights: 光源列表，每个光源包含 position 和 intensity
+            camera_fov: 相机视场角
+            camera_position: 相机位置
+            camera_target: 相机目标点
+            image_size: 图像尺寸
+            spp: 采样数
+            
+        Returns:
+            是否成功
+        """
+        logger.info(f"开始生成自定义数据集: {dataset_name}")
+        logger.info(f"光源数量: {len(lights)}")
+        
+        # 创建数据集目录
+        dataset_dir = self.output_base_dir / dataset_name
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        
+        images_dir = dataset_dir / "images"
+        output_dir = dataset_dir / "output"
+        
+        # 清理旧的图像文件（保留目录结构）
+        if images_dir.exists():
+            import shutil
+            logger.info(f"清理旧的渲染结果: {images_dir}")
+            shutil.rmtree(images_dir)
+        
+        images_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(exist_ok=True)
+        
+        # 创建配置（支持不同类型的光源）
+        config = {
+            'dataset_name': dataset_name,
+            'image_size': list(image_size),
+            'num_lights': len(lights),
+            'lights': [
+                {
+                    'type': light.get('type', 'point'),
+                    'position': light.get('position'),
+                    'direction': light.get('direction'),
+                    'intensity': light['intensity']
+                }
+                for light in lights
+            ],
+            'camera': {
+                'fov': camera_fov,
+                'position': list(camera_position),
+                'target': list(camera_target)
+            }
+        }
+        
+        # 保存配置文件
+        config_path = dataset_dir / "config.yaml"
+        with open(config_path, 'w', encoding='utf-8') as f:
+            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        logger.info(f"配置文件已保存: {config_path}")
+        
+        # 渲染每个光源的图像
+        for i, light in enumerate(lights):
+            light_name = f"light_{i+1}"
+            output_path = images_dir / f"{light_name}.png"
+            
+            logger.info(f"渲染光源 {i+1}/{len(lights)}: {light}")
+            
+            if not self._render_single_light_image(
+                obj_path=obj_path,
+                brdf_path=brdf_path,
+                light_config=light,
+                output_path=output_path,
+                image_size=image_size,
+                spp=spp,
+                camera_fov=camera_fov,
+                camera_position=camera_position,
+                camera_target=camera_target
+            ):
+                logger.error(f"光源 {i+1} 渲染失败")
+                return False
+        
+        # 渲染法线图
+        normal_map_path = images_dir / "ground_truth_normal.png"
+        if not self.render_normal_map(
+            obj_path=obj_path,
+            output_path=normal_map_path,
+            image_size=image_size,
+            spp=spp,
+            camera_fov=camera_fov,
+            camera_position=camera_position,
+            camera_target=camera_target
+        ):
+            logger.error(f"法线图渲染失败: {dataset_name}")
+            return False
+        
+        logger.info(f"自定义数据集生成完成: {dataset_name}")
+        return True
+    
+    def _render_single_light_image(self,
+                                   obj_path: str,
+                                   brdf_path: str,
+                                   light_config: Dict,
+                                   output_path: Path,
+                                   image_size: Tuple[int, int],
+                                   spp: int,
+                                   camera_fov: float,
+                                   camera_position: Tuple[float, float, float],
+                                   camera_target: Tuple[float, float, float]) -> bool:
+        """渲染单个光源的图像"""
+        try:
+            # 打印调试信息
+            logger.info(f"渲染参数:")
+            logger.info(f"  相机位置: {camera_position}")
+            logger.info(f"  相机目标: {camera_target}")
+            logger.info(f"  光源配置: {light_config}")
+            
+            # 加载材质
+            brdf_name = Path(brdf_path).stem
+            material = self._create_simple_material(brdf_name, brdf_path)
+            
+            # 根据光源类型构建光源配置
+            light_type = light_config.get('type', 'point')
+            light_intensity = light_config.get('intensity', 100.0)
+            
+            if light_type == 'point':
+                if 'position' not in light_config:
+                    logger.error(f"点光源缺少position字段: {light_config}")
+                    return False
+                light_dict = {
+                    'type': 'point',
+                    'position': light_config['position'],
+                    'intensity': {'type': 'rgb', 'value': light_intensity * 2.0}
+                }
+            elif light_type == 'directional':
+                if 'direction' not in light_config:
+                    logger.error(f"平行光缺少direction字段: {light_config}")
+                    return False
+                    
+                # 平行光：使用很远的点光源来模拟
+                direction = light_config['direction']
+                logger.info(f"平行光方向: {direction}")
+                
+                # 将方向向量放大到很远的距离来模拟平行光
+                distance = 100.0  # 很远的距离
+                far_position = [d * distance for d in direction]
+                
+                light_dict = {
+                    'type': 'point',
+                    'position': far_position,
+                    'intensity': {'type': 'rgb', 'value': light_intensity * 10.0}  # 增加强度补偿距离
+                }
+            else:
+                logger.error(f"不支持的光源类型: {light_type}")
+                return False
+            
+            # 构建场景
+            scene_dict = {
+                'type': 'scene',
+                'integrator': {
+                    'type': 'path',
+                    'max_depth': 8
+                },
+                'sensor': {
+                    'type': 'perspective',
+                    'fov': camera_fov,
+                    'to_world': mi.ScalarTransform4f().look_at(
+                        mi.ScalarPoint3f(list(camera_position)),
+                        mi.ScalarPoint3f(list(camera_target)),
+                        mi.ScalarPoint3f([0, 1, 0])
+                    ),
+                    'film': {
+                        'type': 'hdrfilm',
+                        'width': image_size[0],
+                        'height': image_size[1],
+                        'rfilter': {'type': 'gaussian'}
+                    }
+                },
+                'light': light_dict
+            }
+            
+            # 直接加载 OBJ 文件
+            if Path(obj_path).exists():
+                scene_dict['object'] = {
+                    'type': 'obj',
+                    'filename': str(obj_path),
+                    'bsdf': material
+                }
+            else:
+                # 如果文件不存在，使用默认球体
+                scene_dict['object'] = {
+                    'type': 'sphere',
+                    'center': [0, 0, 0],
+                    'radius': 1.0,
+                    'bsdf': material
+                }
+            
+            # 渲染
+            scene = mi.load_dict(scene_dict)
+            image = mi.render(scene, spp=spp)
+            
+            # 保存
+            mi.util.write_bitmap(str(output_path), image)
+            logger.info(f"✓ 渲染成功: {output_path.name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"渲染失败: {e}")
+            return False
     
     def generate_batch_datasets(self,
                               obj_files: List[str],
